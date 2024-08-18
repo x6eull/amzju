@@ -2,7 +2,6 @@ import os
 from httpx import Cookies
 from src.session import SessionJar
 
-
 sessions: SessionJar[Cookies] = SessionJar()
 
 

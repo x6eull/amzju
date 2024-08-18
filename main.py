@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.login import router as login_router
 from src.proxy import router as proxy_router
-from src.static import before_sep
+from src.utils import before_sep
 
 app = FastAPI()
 

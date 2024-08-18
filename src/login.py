@@ -1,17 +1,20 @@
 from asyncio import gather
+import base64
+import hashlib
 import re
+import secrets
 from typing import Annotated, Literal
 from urllib.parse import urlencode
-from fastapi import APIRouter, Body, responses, status
+from fastapi import APIRouter, Body, HTTPException, status
 import httpx
 from pydantic import BaseModel, BeforeValidator, Field, HttpUrl
+import pydantic_core
 
-from .static import sessions, default_headers
+from .utils import sessions, default_headers
 
 
 router = APIRouter(
     prefix="/login",
-    responses={401: {"description": "Invalid credential"}},
 )
 
 
@@ -77,9 +80,15 @@ async def get_public_key(client: httpx.AsyncClient):
     return PublicKey(**json)
 
 
-def is_under_zjuam_domain(url: str) -> bool:
+def is_under_zjuam_domain(url: str | httpx.URL | pydantic_core.Url) -> bool:
     # 如果字符串 开头 的零个或多个字符与此正则表达式匹配，则返回相应的 Match。 如果字符串与模式不匹配则返回 None
-    return re.match(r"https?://zjuam.zju.edu.cn(/|$)", url) is not None
+    return re.match(r"https?://zjuam.zju.edu.cn(/|$)", str(url)) is not None
+
+
+# 参与session_id生成的随机数，每次启动都会变化
+instance_id = secrets.token_bytes(32)
+
+SESSION_DURATION = 3600  # 会话持续时间，单位秒
 
 
 @router.post("")
@@ -100,20 +109,23 @@ async def login(
             login_page,
         )
         if match is None:
-            return responses.Response(status_code=status.HTTP_502_BAD_GATEWAY)
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY)
         execution = match.group("execution")
         if not isinstance(execution, str):
-            return responses.Response(status_code=status.HTTP_502_BAD_GATEWAY)
-        final_url = str(
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY)
+        final_url = (
             login_page_resp.url
         )  # 根据service_params获得入口，再重定向后最终POST的URL
 
         if not is_under_zjuam_domain(final_url):
-            return responses.Response(status_code=status.HTTP_421_MISDIRECTED_REQUEST)
+            raise HTTPException(status_code=status.HTTP_421_MISDIRECTED_REQUEST)
+
+        username = credential.username
+        password = credential.password
 
         encrypted_password = hex(
             pow(
-                int.from_bytes(credential.password.encode("utf-8"), "big"),
+                int.from_bytes(password.encode("utf-8"), "big"),
                 pubkey.exponent,
                 pubkey.modulus,
             )
@@ -121,9 +133,8 @@ async def login(
 
         login_result = await client.post(
             final_url,
-            headers={"Referer": final_url},
             data={
-                "username": credential.username,
+                "username": username,
                 "password": encrypted_password,
                 "authcode": "",
                 "execution": execution,
@@ -134,11 +145,20 @@ async def login(
         login_result_url = str(login_result.url)
 
         if is_under_zjuam_domain(login_result_url):  # 登录失败
-            return responses.Response(status_code=status.HTTP_401_UNAUTHORIZED)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+        # token = sha256(instance_id + sha256(username) + sha256(password))
+        token = generate_token(username, password)
 
         # 登录成功
         current_cookies = client.cookies
-        token = sessions.insert(current_cookies)
-        return responses.JSONResponse(
-            status_code=status.HTTP_200_OK, content={"token": token}
-        )
+        sessions.set(token, current_cookies, SESSION_DURATION)
+        return {"token": token}
+
+
+def generate_token(username: str, password: str) -> str:
+    hash_instance = hashlib.sha256(instance_id)
+    hash_instance.update(hashlib.sha256(username.encode("utf-8")).digest())
+    hash_instance.update(hashlib.sha256(password.encode("utf-8")).digest())
+    token = base64.standard_b64encode(hash_instance.digest()).decode("utf-8")
+    return token
