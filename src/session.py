@@ -21,9 +21,6 @@ class Session(Generic[T]):
         return datetime.now() + timedelta(seconds=reserved) > self.not_after
 
 
-AUTO_CLEANUP_INTERVAL = 60
-
-
 class SessionJar(Generic[K, T]):
     __inner: dict[K, Session[T]] = dict()
 
@@ -41,16 +38,18 @@ class SessionJar(Generic[K, T]):
             return None
         return (self.__inner[key].value, self.__inner[key].not_after)
 
-    def __init__(self):
-        self.task = asyncio.get_event_loop().create_task(self.__cleanup())
+    def __init__(self, cleanup_interval: int):
+        self.task = asyncio.get_event_loop().create_task(
+            self.__cleanup(cleanup_interval)
+        )
 
     def __del__(self):
         self.task.cancel()
 
-    async def __cleanup(self):
+    async def __cleanup(self, cleanup_interval: int):
         try:
             while True:
-                await asyncio.sleep(AUTO_CLEANUP_INTERVAL)
+                await asyncio.sleep(cleanup_interval)
                 count_before_cleanup = len(self.__inner)
                 self.__inner = {
                     k: v for k, v in self.__inner.items() if not v.is_expired()

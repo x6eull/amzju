@@ -3,17 +3,19 @@
 
 **本项目仅供学习、研究技术使用。以任何方式使用本项目代码或构建产物需自负后果。**
 
-## 环境要求
-需要Python 3.10+，建议使用Python 3.12。
+## 运行
+需要Python 3.10+，建议使用Python 3.12。  
+1. (可选) 创建虚拟环境：`python -m venv ./.venv`并启用该环境(on Windows: `.\.venv\Scripts\activate`)
+2. 安装依赖：`pip install -r requirements.txt`
+3. 创建`local.config.json`并参照`config.json`自行修改需要的配置(相同配置项，前者覆盖后者)。
+4. 使用`python main.py`启动服务。如需热重载(开发时)，可使用`fastapi dev`。
 
 ## BypassCORS模式
 由于CORS和Cookie等的限制，第三方服务的前端不能直接向统一认证发请求，更无法获取登录后的cookie等凭据。  
 此时可使用amzju作为后端的一部分，调用amzju登录和代理请求(需要用户提供明文用户名+密码)。
 
 #### 使用方式
-1. 在`cors_allow_origins.txt`添加需要跨域访问的域名。  
-2. 调用`/proxy/text`API，并提供用户名密码/token、要访问的第三方服务method/url/headers/body。此API响应的状态码、headers、正文都和上游一致(有少数例外)。  
-   407状态码表明登录失败；502状态码表明上游响应无效(如zjuam有不兼容更新)，也有可能是上游直接返回了502(原样返回)。代理响应的包含头部`az-token`，此token可代替用户名密码进行接下来的代理请求(将该token置于请求的`az-token`头部即可)。
+调用`/proxy/text`API。需提供用户名密码/token、要访问的第三方服务method/url/headers/body。此API响应的状态码、headers、正文都和上游一致(有少数例外，可阅读生成的OpenAPI文档，启动服务后，浏览器访问`/docs`或`/redoc`)。
  
 ## Approve模式
 **此模式尚在开发。**

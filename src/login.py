@@ -1,16 +1,15 @@
 from asyncio import gather
-import base64
 import hashlib
 import re
 import secrets
 from typing import Annotated, Literal
 from urllib.parse import urlencode
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import Body, HTTPException, status
 import httpx
 from pydantic import BaseModel, BeforeValidator, Field, HttpUrl
 import pydantic_core
 
-from .utils import sessions, default_headers
+from .utils import config, sessions, default_headers
 
 
 class ServiceParamsBase(BaseModel):
@@ -66,11 +65,13 @@ class PublicKey(BaseModel):
     exponent: IntFromHex
 
 
-async def get_public_key(client: httpx.AsyncClient):
+async def get_public_key(client: httpx.AsyncClient, referer: str):
     """
     获取公钥。不会关闭client
     """
-    resp = await client.get("https://zjuam.zju.edu.cn/cas/v2/getPubKey")
+    resp = await client.get(
+        "https://zjuam.zju.edu.cn/cas/v2/getPubKey", headers={"referer": referer}
+    )
     json = resp.json()
     return PublicKey(**json)
 
@@ -83,8 +84,6 @@ def is_under_zjuam_domain(url: str | httpx.URL | pydantic_core.Url) -> bool:
 # 参与session_id生成的随机数，每次启动都会变化
 instance_id = secrets.token_bytes(32)
 
-SESSION_DURATION = 3600  # 会话持续时间，单位秒
-
 
 async def login(
     service_params: Annotated[
@@ -93,9 +92,12 @@ async def login(
     credential: Annotated[UsernamePasswordCredential, Body(embed=True)],
 ) -> tuple[bytes, httpx.Cookies]:
     entry = service_params.get_entry()
-    async with httpx.AsyncClient(headers=default_headers) as client:
-        [login_page_resp, pubkey] = await gather(
-            client.get(url=entry, follow_redirects=True), get_public_key(client)
+    async with httpx.AsyncClient(
+        headers=default_headers, cookies=httpx.Cookies(None)
+    ) as client:
+        login_page_resp = await client.get(
+            url=entry,
+            follow_redirects=True,
         )
         login_page = login_page_resp.text
         match = re.search(
@@ -112,6 +114,8 @@ async def login(
         )  # 根据service_params获得入口，再重定向后最终POST的URL
 
         assert is_under_zjuam_domain(final_url)
+
+        pubkey = await get_public_key(client, str(final_url))
 
         username = credential.username
         password = credential.password
@@ -147,7 +151,7 @@ async def login(
 
         # 登录成功
         current_cookies = client.cookies
-        sessions.set(token_bytes, current_cookies, SESSION_DURATION)
+        sessions.set(token_bytes, current_cookies, config.session_duration)
         return (token_bytes, current_cookies)
 
 

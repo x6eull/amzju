@@ -1,0 +1,10 @@
+{
+    "cors_allow_origins": [],
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0",
+    "session_cleanup_interval": 60,
+    "session_duration": 28800,
+    "host": "127.0.0.1",
+    "port": 8000,
+    "username_filter": "^[0-9]{1,10}$",
+    "doc_enabled": true
+}
