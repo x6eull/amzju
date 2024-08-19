@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Generic, Optional, TypeVar
 
+K = TypeVar("K")
 T = TypeVar("T")
 
 
@@ -23,15 +24,15 @@ class Session(Generic[T]):
 AUTO_CLEANUP_INTERVAL = 60
 
 
-class SessionJar(Generic[T]):
-    __inner: dict[str, Session[T]] = dict()
+class SessionJar(Generic[K, T]):
+    __inner: dict[K, Session[T]] = dict()
 
-    def set(self, key: str, value: T, valid_duration: int):
+    def set(self, key: K, value: T, valid_duration: int):
         """新建(覆盖相同key)session。有效期单位为秒"""
         self.__inner[key] = Session(value, valid_duration)
 
     def get(
-        self, key: str, expire_reserved_seconds: int = 0
+        self, key: K, expire_reserved_seconds: int = 0
     ) -> Optional[tuple[T, datetime]]:
         if key not in self.__inner:
             return None
@@ -47,11 +48,16 @@ class SessionJar(Generic[T]):
         self.task.cancel()
 
     async def __cleanup(self):
-        while True:
-            await asyncio.sleep(AUTO_CLEANUP_INTERVAL)
-            count_before_cleanup = len(self.__inner)
-            self.__inner = {k: v for k, v in self.__inner.items() if not v.is_expired()}
-            count_after_cleanup = len(self.__inner)
-            print(
-                f"Session cleanup done [{count_before_cleanup} -> {count_after_cleanup}]"
-            )
+        try:
+            while True:
+                await asyncio.sleep(AUTO_CLEANUP_INTERVAL)
+                count_before_cleanup = len(self.__inner)
+                self.__inner = {
+                    k: v for k, v in self.__inner.items() if not v.is_expired()
+                }
+                count_after_cleanup = len(self.__inner)
+                print(
+                    f"Session cleanup done [{count_before_cleanup} -> {count_after_cleanup}]"
+                )
+        except asyncio.CancelledError:
+            pass

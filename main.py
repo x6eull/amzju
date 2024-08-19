@@ -2,7 +2,6 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.login import router as login_router
 from src.proxy import router as proxy_router
 from src.utils import before_sep
 
@@ -25,8 +24,8 @@ if os.path.exists("cors_allow_origins.txt"):
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["az-token"],
+        expose_headers=["az-token"],
     )
 
 
-app.include_router(login_router)
 app.include_router(proxy_router)

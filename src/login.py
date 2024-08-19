@@ -13,11 +13,6 @@ import pydantic_core
 from .utils import sessions, default_headers
 
 
-router = APIRouter(
-    prefix="/login",
-)
-
-
 class ServiceParamsBase(BaseModel):
     def get_entry(self) -> str:
         raise NotImplementedError
@@ -91,13 +86,12 @@ instance_id = secrets.token_bytes(32)
 SESSION_DURATION = 3600  # 会话持续时间，单位秒
 
 
-@router.post("")
 async def login(
     service_params: Annotated[
         ServiceParamsWithClientId | ServiceParamsWithService, Body(embed=True)
     ],
     credential: Annotated[UsernamePasswordCredential, Body(embed=True)],
-):
+) -> tuple[bytes, httpx.Cookies]:
     entry = service_params.get_entry()
     async with httpx.AsyncClient(headers=default_headers) as client:
         [login_page_resp, pubkey] = await gather(
@@ -117,8 +111,7 @@ async def login(
             login_page_resp.url
         )  # 根据service_params获得入口，再重定向后最终POST的URL
 
-        if not is_under_zjuam_domain(final_url):
-            raise HTTPException(status_code=status.HTTP_421_MISDIRECTED_REQUEST)
+        assert is_under_zjuam_domain(final_url)
 
         username = credential.username
         password = credential.password
@@ -145,20 +138,21 @@ async def login(
         login_result_url = str(login_result.url)
 
         if is_under_zjuam_domain(login_result_url):  # 登录失败
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+            raise HTTPException(
+                status_code=status.HTTP_407_PROXY_AUTHENTICATION_REQUIRED
+            )
 
         # token = sha256(instance_id + sha256(username) + sha256(password))
-        token = generate_token(username, password)
+        token_bytes = generate_token_bytes(username, password)
 
         # 登录成功
         current_cookies = client.cookies
-        sessions.set(token, current_cookies, SESSION_DURATION)
-        return {"token": token}
+        sessions.set(token_bytes, current_cookies, SESSION_DURATION)
+        return (token_bytes, current_cookies)
 
 
-def generate_token(username: str, password: str) -> str:
+def generate_token_bytes(username: str, password: str) -> bytes:
     hash_instance = hashlib.sha256(instance_id)
     hash_instance.update(hashlib.sha256(username.encode("utf-8")).digest())
     hash_instance.update(hashlib.sha256(password.encode("utf-8")).digest())
-    token = base64.standard_b64encode(hash_instance.digest()).decode("utf-8")
-    return token
+    return hash_instance.digest()

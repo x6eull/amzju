@@ -2,7 +2,7 @@ import os
 from httpx import Cookies
 from src.session import SessionJar
 
-sessions: SessionJar[Cookies] = SessionJar()
+sessions: SessionJar[bytes, Cookies] = SessionJar()
 
 
 default_headers = {
