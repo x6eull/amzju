@@ -50,13 +50,9 @@ class SessionJar(Generic[K, T]):
         try:
             while True:
                 await asyncio.sleep(cleanup_interval)
-                count_before_cleanup = len(self.__inner)
                 self.__inner = {
                     k: v for k, v in self.__inner.items() if not v.is_expired()
                 }
-                count_after_cleanup = len(self.__inner)
-                print(
-                    f"Session cleanup done [{count_before_cleanup} -> {count_after_cleanup}]"
-                )
+
         except asyncio.CancelledError:
             pass

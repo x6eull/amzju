@@ -9,7 +9,7 @@ from src.session import SessionJar
 
 class Config(BaseModel):
     # 设置可跨域访问的域名。对其将不限制Method和Header。
-    # 空列表则不允许跨域访问。为'*'或['*']则允许所有域名跨域访问。
+    # 空列表则不允许跨域访问。为"*”或["*"]则允许所有域名跨域访问。
     cors_allow_origins: list[str] | str
     user_agent: str
     # 会话清理间隔，单位为秒

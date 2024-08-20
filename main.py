@@ -8,7 +8,7 @@ import uvicorn
 print("doc_enabled: ", config.doc_enabled)
 app = FastAPI(
     title="amzju",
-    version="0.1.1",
+    version="0.1.2",
     docs_url="/docs" if config.doc_enabled else None,
     redoc_url="/redoc" if config.doc_enabled else None,
 )

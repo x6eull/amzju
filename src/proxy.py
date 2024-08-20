@@ -1,8 +1,10 @@
+import asyncio
 import base64
 from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException, Header, responses, status
 import httpx
 from pydantic import Base64Bytes, HttpUrl
+
 
 from .login import (
     ServiceParamsWithClientId,
@@ -12,6 +14,7 @@ from .login import (
     login,
 )
 from .utils import config, sessions, default_headers
+from .approve import get_credential_from_passphrase
 
 router = APIRouter(prefix="/proxy")
 
@@ -20,17 +23,20 @@ async def ensure_session(
     az_token: Annotated[
         Base64Bytes | None,
         Header(
-            description="上次成功登录返回的az-token。用户名密码/token两者至少提供一项，都提供时先尝试token。"
+            description="上次成功登录返回的az-token。用户名密码/token/passphrase三者至少提供一项，都提供时先尝试token。"
         ),
     ] = None,
     service_params: Annotated[
         ServiceParamsWithClientId | ServiceParamsWithService | None,
         Body(
             embed=True,
-            description="统一认证使用的服务回调信息。可跟踪正常访问统一认证时的URL，Query中即包含这些参数。如需进行登录，此值和credential必须同时提供。",
+            description="统一认证使用的服务回调信息。可跟踪正常访问统一认证时的URL，Query中即包含这些参数。如需进行登录(即没有先前的会话)，必须提供此参数",
         ),
     ] = None,
     credential: Annotated[UsernamePasswordCredential | None, Body(embed=True)] = None,
+    passphrase: Annotated[
+        str | None, Body(embed=True, description="用于Approve模式的通行密钥")
+    ] = None,
     max_age: Annotated[
         int | None,
         Body(
@@ -41,6 +47,13 @@ async def ensure_session(
         ),
     ] = None,
 ) -> tuple[bytes, httpx.Cookies]:
+    from_passphrase = False
+    if passphrase:
+        private_cred = get_credential_from_passphrase(passphrase)
+        if private_cred is not None:
+            credential = UsernamePasswordCredential(**private_cred.model_dump())
+            from_passphrase = True
+
     # 如果没有提供token且允许使用之前的会话，尝试从username/password获取token
     if max_age is None:
         # 不放在参数默认值，防止从文档中看到配置
@@ -58,7 +71,10 @@ async def ensure_session(
     # 会话已过期（或不存在，继续尝试登录）
     if service_params is None or credential is None:
         raise HTTPException(status.HTTP_407_PROXY_AUTHENTICATION_REQUIRED)
-    if config.username_filter.search(credential.username) is None:
+    if (
+        not from_passphrase
+        and config.username_filter.search(credential.username) is None
+    ):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, {"message": "Username not allowed"}
         )
@@ -97,7 +113,7 @@ async def text_proxy(
     session: Annotated[tuple[bytes, httpx.Cookies], Depends(ensure_session)],
     method: Annotated[str, Body(embed=True, pattern=r"^[A-Z]{1,10}$")],
     url: Annotated[HttpUrl, Body(embed=True)],
-    headers: Annotated[dict[str, str] | None, Body(embed=True)],
+    headers: Annotated[dict[str, str] | None, Body(embed=True)] = None,
     body: Annotated[str | None, Body(embed=True)] = None,
 ):
     """代理纯文本请求。适用于JSON/XML/HTML等格式API"""
